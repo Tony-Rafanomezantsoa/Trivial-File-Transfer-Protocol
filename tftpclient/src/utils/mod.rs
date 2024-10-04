@@ -10,7 +10,6 @@ pub enum ClientAction {
     Write,
 }
 
-
 /// Contains all arguments required by a TFTP client.
 ///
 /// This struct holds the necessary parameters for performing TFTP operations,
@@ -53,7 +52,7 @@ impl ClientArgs {
         if args[4].is_empty() {
             return Err(String::from("Error: [MODE] is empty"));
         }
-        
+
         Ok(Self {
             action,
             filename: args[2].clone(),
