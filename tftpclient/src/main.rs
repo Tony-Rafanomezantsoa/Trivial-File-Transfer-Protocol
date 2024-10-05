@@ -1,7 +1,8 @@
 use std::{fmt::format, net::UdpSocket, process, time::Duration};
 
 use rand::Rng;
-use utils::{ClientAction, ClientArgs, DataPacket};
+use utils::{ClientAction, ClientArgs};
+use tftppacket::{DataPacket, RRQPacket};
 
 mod utils;
 
@@ -19,11 +20,10 @@ fn main() -> Result<(), String> {
 
     match client_args.action {
         ClientAction::Read => {
-            let read_request =
-                utils::build_read_request_packet(&client_args.filename, &client_args.mode)?;
+            let rrq = RRQPacket::create_rrq_packet(&client_args.filename, &client_args.mode)?;
 
             client_socket
-                .send_to(&read_request, format!("{}:69", client_args.remote_ip))
+                .send_to(&rrq, format!("{}:69", client_args.remote_ip))
                 .map_err(|e| format!("Unable to initialize a RRQ: {}", e))?;
 
             // Create a buffer for a TFTP data packet
@@ -39,13 +39,18 @@ fn main() -> Result<(), String> {
 
             let first_data_packet = match DataPacket::parse(&response) {
                 Ok(packet) => packet,
-                // Send an "ERR" packet to the remote server
-                Err(_) => todo!(),
+                // INVALID DATA PACKET
+                // Send an "ERR" packet to the remote server and exit the program
+                Err(e) => todo!(),
             };
 
             if first_data_packet.block != 1 {
-                // Send an "ERR" packet to the remote server
+                // INVALID DATA PACKET
+                // Send an "ERR" packet to the remote server and exit the program
+                todo!()
             }
+
+            let server_tid = remote_addr.port();
         }
         ClientAction::Write => {}
     }

@@ -104,7 +104,12 @@ name = "tftpclient"
 version = "0.1.0"
 dependencies = [
  "rand",
+ "tftppacket",
 ]
+
+[[package]]
+name = "tftppacket"
+version = "0.1.0"
 
 [[package]]
 name = "unicode-ident"
