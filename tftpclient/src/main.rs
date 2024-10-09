@@ -6,7 +6,7 @@ use utils::{ClientAction, ClientArgs};
 
 mod utils;
 
-fn main() -> Result<(), String> {    
+fn main() -> Result<(), String> {
     let client_args = ClientArgs::build()?;
 
     let client_tid: u16 = rand::thread_rng().gen_range(0..=65535);
@@ -50,12 +50,14 @@ fn main() -> Result<(), String> {
                     "Received data with an invalid block number.",
                 );
                 client_socket.send_to(&error, remote_addr.clone());
-                return Err(String::from("File transmission aborted due to an error: Received data with an invalid block number."));
+                return Err(String::from(
+                    "File transmission aborted due to an error: Received data with an invalid block number."
+                ));
             }
 
             let server_tid = remote_addr.port();
         }
-        
+
         ClientAction::Write => {
             let wrq = WRQPacket::create_wrq_packet(&client_args.filename, &client_args.mode);
 
@@ -86,7 +88,9 @@ fn main() -> Result<(), String> {
                     "Received ACK with an invalid block number.",
                 );
                 client_socket.send_to(&error, remote_addr.clone());
-                return Err(String::from("File transmission aborted due to an error: Received ACK with an invalid block number."));
+                return Err(String::from(
+                    "File transmission aborted due to an error: Received ACK with an invalid block number."
+                ));
             }
 
             let server_tid = remote_addr.port();
