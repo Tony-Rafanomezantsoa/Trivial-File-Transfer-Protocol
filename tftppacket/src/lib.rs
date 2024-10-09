@@ -1,4 +1,5 @@
 /// Represents a TFTP RRQ Packet.
+#[derive(Debug)]
 pub struct RRQPacket {
     pub filename: String,
     pub mode: String,
@@ -29,6 +30,58 @@ impl RRQPacket {
 
         packet
     }
+
+    /// Parses a raw byte slice into a `RRQPacket`
+    pub fn parse(data: &[u8]) -> Result<Self, String> {
+        let opcode = match data.get(0..2) {
+            Some(v) => u16::from_be_bytes(v.try_into().unwrap()),
+            None => return Err(String::from("Invalid RRQ packet")),
+        };
+
+        if opcode != Self::OPCODE {
+            return Err(String::from("Invalid RRQ packet"));
+        }
+
+        let mut data_iterator = data
+            .iter()
+            .enumerate()
+            .skip_while(|(i, _)| *i == 0 || *i == 1); // Skip opcode bytes
+
+        let mut filename_bytes: Vec<u8> = Vec::new();
+
+        // Obtain the filename in byte format
+        loop {
+            match data_iterator.next() {
+                Some((_, byte)) => {
+                    if *byte == 0 {
+                        break;
+                    }
+                    filename_bytes.push(*byte);
+                }
+                None => return Err(String::from("Invalid RRQ packet")),
+            }
+        }
+
+        let mut mode_bytes: Vec<u8> = Vec::new();
+
+        // Obtain the mode in byte format
+        loop {
+            match data_iterator.next() {
+                Some((_, byte)) => {
+                    if *byte == 0 {
+                        break;
+                    }
+                    mode_bytes.push(*byte);
+                }
+                None => return Err(String::from("Invalid RRQ packet")),
+            }
+        }
+
+        let filename = String::from_utf8(filename_bytes).map_err(|_| String::from("Invalid RRQ packet"))?;
+        let mode = String::from_utf8(mode_bytes).map_err(|_| String::from("Invalid RRQ packet"))?;
+
+        Ok(Self { filename, mode })
+    }
 }
 
 /// Represents a TFTP WRQ Packet.
@@ -45,7 +98,7 @@ impl WRQPacket {
     pub fn create_wrq_packet(filename: &str, mode: &str) -> Vec<u8> {
         let mut packet: Vec<u8> = Vec::new();
 
-        // WRQ opcode = 1
+        // WRQ opcode = 2
         packet.extend_from_slice(&Self::OPCODE.to_be_bytes());
 
         // WRQ filename
@@ -80,7 +133,7 @@ impl DATAPacket {
     /// It extracts these components and constructs a `DATAPacket` instance.
     pub fn parse(data: [u8; 516]) -> Result<Self, String> {
         let opcode = u16::from_be_bytes(data[0..2].try_into().unwrap());
-        
+
         if opcode != Self::OPCODE {
             return Err(String::from("Invalid TFTP DATA packet"));
         }
@@ -112,7 +165,7 @@ impl ACKPacket {
         if opcode != Self::OPCODE {
             return Err(String::from("Invalid TFTP ACK packet"));
         }
-        
+
         let block = u16::from_be_bytes(data[2..4].try_into().unwrap());
 
         Ok(Self { block })
@@ -138,7 +191,7 @@ impl ERRORPacket {
 
         // ErrorMessage
         packet.extend_from_slice(error_message.as_bytes());
-        
+
         // ERROR null byte
         packet.push(0);
 
