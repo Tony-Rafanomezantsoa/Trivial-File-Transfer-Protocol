@@ -85,6 +85,7 @@ impl RRQPacket {
 }
 
 /// Represents a TFTP WRQ Packet.
+#[derive(Debug)]
 pub struct WRQPacket {
     pub filename: String,
     pub mode: String,
@@ -114,6 +115,58 @@ impl WRQPacket {
         packet.push(0);
 
         packet
+    }
+
+    /// Parses a raw byte slice into a `WRQPacket`
+    pub fn parse(data: &[u8]) -> Result<Self, String> {
+        let opcode = match data.get(0..2) {
+            Some(v) => u16::from_be_bytes(v.try_into().unwrap()),
+            None => return Err(String::from("Invalid WRQ packet")),
+        };
+
+        if opcode != Self::OPCODE {
+            return Err(String::from("Invalid WRQ packet"));
+        }
+
+        let mut data_iterator = data
+            .iter()
+            .enumerate()
+            .skip_while(|(i, _)| *i == 0 || *i == 1); // Skip opcode bytes
+
+        let mut filename_bytes: Vec<u8> = Vec::new();
+
+        // Obtain the filename in byte format
+        loop {
+            match data_iterator.next() {
+                Some((_, byte)) => {
+                    if *byte == 0 {
+                        break;
+                    }
+                    filename_bytes.push(*byte);
+                }
+                None => return Err(String::from("Invalid WRQ packet")),
+            }
+        }
+
+        let mut mode_bytes: Vec<u8> = Vec::new();
+
+        // Obtain the mode in byte format
+        loop {
+            match data_iterator.next() {
+                Some((_, byte)) => {
+                    if *byte == 0 {
+                        break;
+                    }
+                    mode_bytes.push(*byte);
+                }
+                None => return Err(String::from("Invalid WRQ packet")),
+            }
+        }
+
+        let filename = String::from_utf8(filename_bytes).map_err(|_| String::from("Invalid WRQ packet"))?;
+        let mode = String::from_utf8(mode_bytes).map_err(|_| String::from("Invalid WRQ packet"))?;
+
+        Ok(Self { filename, mode })
     }
 }
 
