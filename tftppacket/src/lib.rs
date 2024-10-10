@@ -251,3 +251,29 @@ impl ERRORPacket {
         packet
     }
 }
+
+/// Represents a TFTP request packet, 
+/// which can be either a Read Request (RRQ) 
+/// or a Write Request (WRQ) packet.
+#[derive(Debug)]
+pub enum RequestPacket {
+    RRQ(RRQPacket),
+    WRQ(WRQPacket),
+}
+
+impl RequestPacket {
+    /// Parses a raw byte slice into a `RequestPacket`,
+    /// which can be either a Read Request (RRQ) 
+    /// or a Write Request (WRQ) packet.
+    pub fn parse(data: &[u8]) -> Result<Self, String> {
+        if let Ok(rrq) = RRQPacket::parse(data) {
+            return Ok(Self::RRQ(rrq));
+        }
+
+        if let Ok(wrq) = WRQPacket::parse(data) {
+            return Ok(Self::WRQ(wrq));
+        }
+        
+        Err(String::from("Invalid TFTP Request Packet"))
+    }
+}
