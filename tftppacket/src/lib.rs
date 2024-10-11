@@ -171,6 +171,7 @@ impl WRQPacket {
 }
 
 /// Represents a TFTP DATA Packet.
+#[derive(Debug)]
 pub struct DATAPacket {
     pub block: u16,
     pub data: [u8; 512],
@@ -200,6 +201,7 @@ impl DATAPacket {
 }
 
 /// Represents a TFTP ACK Packet.
+#[derive(Debug)]
 pub struct ACKPacket {
     pub block: u16,
 }
@@ -226,21 +228,31 @@ impl ACKPacket {
 }
 
 /// Represents a TFTP ERROR Packet.
-pub enum ERRORPacket {}
+#[derive(Debug)]
+pub enum ERRORPacket {
+    NotDefined(String),
+    FileNotFound,
+    AccessViolation,
+    DiskFull,
+    IllegalTftpOperation,
+    UknownTransferID,
+    FileAlreadyExists,
+    NoSuchUser,
+}
 
 impl ERRORPacket {
     pub const OPCODE: u16 = 5;
 
     /// Constructs a custom TFTP ERROR packet in byte format
-    /// with ErrorCode = 0 and using the specified error message.
-    pub fn create_custom_error_packet(error_message: &str) -> Vec<u8> {
+    /// using the specified error code and error message.
+    fn create_custom_error_packet(error_code: u16, error_message: &str) -> Vec<u8> {
         let mut packet: Vec<u8> = Vec::new();
 
         // ERROR opcode = 5
         packet.extend_from_slice(&Self::OPCODE.to_be_bytes());
 
-        // Custom ErrCode = 0
-        packet.extend_from_slice(&[0, 0]);
+        // Custom ErrCode
+        packet.extend_from_slice(&error_code.to_be_bytes());
 
         // ErrorMessage
         packet.extend_from_slice(error_message.as_bytes());
@@ -250,18 +262,82 @@ impl ERRORPacket {
 
         packet
     }
+
+    /// Converts a `ERRORPacket` into a TFTP ERROR packet in byte format.
+    pub fn as_bytes(&self) -> Vec<u8> {
+        match *self {
+            Self::NotDefined(ref error_message) => Self::create_custom_error_packet(0, error_message),
+            Self::FileNotFound => Self::create_custom_error_packet(1, "File not found."),
+            Self::AccessViolation => Self::create_custom_error_packet(2, "Access violation."),
+            Self::DiskFull => Self::create_custom_error_packet(3, "Disk full or allocation exceeded."),
+            Self::IllegalTftpOperation => Self::create_custom_error_packet(4, "Illegal TFTP operation."),
+            Self::UknownTransferID => Self::create_custom_error_packet(5, "Unknown transfer ID."),
+            Self::FileAlreadyExists => Self::create_custom_error_packet(6, "File already exists."),
+            Self::NoSuchUser => Self::create_custom_error_packet(7, "No such user."),
+        }
+    }
+
+    /// Parses a byte array into a `ERRORPacket`.
+    pub fn parse(data: &[u8]) -> Result<Self, String> {
+        let opcode = match data.get(0..2) {
+            Some(v) => u16::from_be_bytes(v.try_into().unwrap()),
+            None => return Err(String::from("Invalid ERROR packet")),
+        };
+
+        if opcode != Self::OPCODE {
+            return Err(String::from("Invalid ERROR packet"));
+        }
+
+        let errcode = match data.get(2..4) {
+            Some(v) => u16::from_be_bytes(v.try_into().unwrap()),
+            None => return Err(String::from("Invalid ERROR packet")),
+        };
+
+        match errcode {
+            0 => {
+                let mut error_message_bytes: Vec<u8> = Vec::new();
+
+                for (i, byte) in data.iter().enumerate() {
+                    // Skip Opcode and ErrCode
+                    if i < 4 {
+                        continue;
+                    }
+
+                    if *byte == 0 {
+                        break;
+                    }
+
+                    error_message_bytes.push(*byte);
+                }
+
+                match String::from_utf8(error_message_bytes) {
+                    Ok(error_message) => Ok(Self::NotDefined(error_message)),
+                    Err(_) => Err(String::from("Invalid ERROR packet")),
+                }
+            }
+            1 => Ok(Self::FileNotFound),
+            2 => Ok(Self::AccessViolation),
+            3 => Ok(Self::DiskFull),
+            4 => Ok(Self::IllegalTftpOperation),
+            5 => Ok(Self::UknownTransferID),
+            6 => Ok(Self::FileAlreadyExists),
+            7 => Ok(Self::NoSuchUser),
+            _ => Err(String::from("Invalid ERROR packet")),
+        }
+    }
 }
 
-/// Represents a TFTP request packet, 
-/// which can be either a Read Request (RRQ) 
-/// or a Write Request (WRQ) packet.
-#[derive(Debug)]
-pub enum RequestPacket {
+/// Represents all TFTP packets
+/// decsribed in RFC 1350.
+pub enum TFTPPacket {
     RRQ(RRQPacket),
     WRQ(WRQPacket),
+    DATA(DATAPacket),
+    ACK(ACKPacket),
+    ERROR(ERRORPacket),
 }
 
-impl RequestPacket {
+impl TFTPPacket {
     /// Parses a raw byte slice into a `RequestPacket`,
     /// which can be either a Read Request (RRQ) 
     /// or a Write Request (WRQ) packet.
@@ -273,7 +349,7 @@ impl RequestPacket {
         if let Ok(wrq) = WRQPacket::parse(data) {
             return Ok(Self::WRQ(wrq));
         }
-        
+
         Err(String::from("Invalid TFTP Request Packet"))
     }
 }
