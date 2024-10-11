@@ -209,19 +209,21 @@ pub struct ACKPacket {
 impl ACKPacket {
     pub const OPCODE: u16 = 4;
 
-    /// Parses a byte array into a `ACKPacket`.
-    ///
-    /// This function takes a byte array of length 4, which includes
-    /// the opcode (2 bytes) and block number (2 bytes).
-    /// It extracts these components and constructs a `ACKPacket` instance.
-    pub fn parse(data: [u8; 4]) -> Result<Self, String> {
-        let opcode = u16::from_be_bytes(data[0..2].try_into().unwrap());
+    /// Parses a raw byte slice into a `ACKPacket`.
+    pub fn parse(data: &[u8]) -> Result<Self, String> {
+        let opcode = match data.get(0..2) {
+            Some(v) => u16::from_be_bytes(v.try_into().unwrap()),
+            None => return Err(String::from("Invalid TFTP ACK packet")), 
+        };
 
         if opcode != Self::OPCODE {
             return Err(String::from("Invalid TFTP ACK packet"));
         }
 
-        let block = u16::from_be_bytes(data[2..4].try_into().unwrap());
+        let block = match data.get(2..4) {
+            Some(v) => u16::from_be_bytes(v.try_into().unwrap()),
+            None => return Err(String::from("Invalid TFTP ACK packet")), 
+        };
 
         Ok(Self { block })
     }
@@ -277,7 +279,7 @@ impl ERRORPacket {
         }
     }
 
-    /// Parses a byte array into a `ERRORPacket`.
+    /// Parses a raw byte slice into a `ERRORPacket`.
     pub fn parse(data: &[u8]) -> Result<Self, String> {
         let opcode = match data.get(0..2) {
             Some(v) => u16::from_be_bytes(v.try_into().unwrap()),
@@ -338,9 +340,7 @@ pub enum TFTPPacket {
 }
 
 impl TFTPPacket {
-    /// Parses a raw byte slice into a `RequestPacket`,
-    /// which can be either a Read Request (RRQ) 
-    /// or a Write Request (WRQ) packet.
+    /// Parses a raw byte slice into a `TFTPPacket`
     pub fn parse(data: &[u8]) -> Result<Self, String> {
         if let Ok(rrq) = RRQPacket::parse(data) {
             return Ok(Self::RRQ(rrq));
@@ -350,6 +350,14 @@ impl TFTPPacket {
             return Ok(Self::WRQ(wrq));
         }
 
-        Err(String::from("Invalid TFTP Request Packet"))
+        if let Ok(ack) = ACKPacket::parse(data) {
+            return Ok(Self::ACK(ack));
+        }
+
+        if let Ok(err) = ERRORPacket::parse(data) {
+            return Ok(Self::ERROR(err));
+        }
+
+        Err(String::from("Invalid TFTP Packet"))
     }
 }
