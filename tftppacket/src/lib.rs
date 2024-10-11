@@ -77,7 +77,8 @@ impl RRQPacket {
             }
         }
 
-        let filename = String::from_utf8(filename_bytes).map_err(|_| String::from("Invalid RRQ packet"))?;
+        let filename =
+            String::from_utf8(filename_bytes).map_err(|_| String::from("Invalid RRQ packet"))?;
         let mode = String::from_utf8(mode_bytes).map_err(|_| String::from("Invalid RRQ packet"))?;
 
         Ok(Self { filename, mode })
@@ -163,7 +164,8 @@ impl WRQPacket {
             }
         }
 
-        let filename = String::from_utf8(filename_bytes).map_err(|_| String::from("Invalid WRQ packet"))?;
+        let filename =
+            String::from_utf8(filename_bytes).map_err(|_| String::from("Invalid WRQ packet"))?;
         let mode = String::from_utf8(mode_bytes).map_err(|_| String::from("Invalid WRQ packet"))?;
 
         Ok(Self { filename, mode })
@@ -180,23 +182,47 @@ pub struct DATAPacket {
 impl DATAPacket {
     pub const OPCODE: u16 = 3;
 
-    /// Parses a byte array into a `DATAPacket`.
-    ///
-    /// This function takes a byte array of length 516, which includes
-    /// the opcode (2 bytes), block number (2 bytes), and data (512 bytes).
-    /// It extracts these components and constructs a `DATAPacket` instance.
-    pub fn parse(data: [u8; 516]) -> Result<Self, String> {
-        let opcode = u16::from_be_bytes(data[0..2].try_into().unwrap());
+    /// Parses a raw byte slice into a `DATAPacket`.
+    pub fn parse(data: &[u8]) -> Result<Self, String> {
+        let opcode = match data.get(0..2) {
+            Some(v) => u16::from_be_bytes(v.try_into().unwrap()),
+            None => return Err(String::from("Invalid TFTP DATA packet")),
+        };
 
         if opcode != Self::OPCODE {
             return Err(String::from("Invalid TFTP DATA packet"));
         }
 
-        let block = u16::from_be_bytes(data[2..4].try_into().unwrap());
+        let block = match data.get(2..4) {
+            Some(v) => u16::from_be_bytes(v.try_into().unwrap()),
+            None => return Err(String::from("Invalid TFTP DATA packet")),
+        };
 
-        let data: [u8; 512] = data[4..].try_into().unwrap();
+        let mut data_packet = [0; 512];
+        let mut data_packet_index = 0;
 
-        Ok(Self { block, data })
+        for (i, byte) in data.iter().enumerate() {
+            // Skip Opcode and block bytes
+            if i < 4 {
+                continue;
+            }
+
+            // The maximum size of TFTP DATA packet
+            // is equal to 516 bytes, which includes
+            // the opcode (2 bytes), block number (2 bytes),
+            // and data (512 bytes).
+            if i < 516 {
+                data_packet[data_packet_index] = *byte;
+                data_packet_index += 1;
+            } else {
+                break;
+            }
+        }
+
+        Ok(Self {
+            block,
+            data: data_packet,
+        })
     }
 }
 
@@ -213,7 +239,7 @@ impl ACKPacket {
     pub fn parse(data: &[u8]) -> Result<Self, String> {
         let opcode = match data.get(0..2) {
             Some(v) => u16::from_be_bytes(v.try_into().unwrap()),
-            None => return Err(String::from("Invalid TFTP ACK packet")), 
+            None => return Err(String::from("Invalid TFTP ACK packet")),
         };
 
         if opcode != Self::OPCODE {
@@ -222,7 +248,7 @@ impl ACKPacket {
 
         let block = match data.get(2..4) {
             Some(v) => u16::from_be_bytes(v.try_into().unwrap()),
-            None => return Err(String::from("Invalid TFTP ACK packet")), 
+            None => return Err(String::from("Invalid TFTP ACK packet")),
         };
 
         Ok(Self { block })
@@ -300,7 +326,7 @@ impl ERRORPacket {
                 let mut error_message_bytes: Vec<u8> = Vec::new();
 
                 for (i, byte) in data.iter().enumerate() {
-                    // Skip Opcode and ErrCode
+                    // Skip Opcode and ErrCode bytes
                     if i < 4 {
                         continue;
                     }
@@ -348,6 +374,10 @@ impl TFTPPacket {
 
         if let Ok(wrq) = WRQPacket::parse(data) {
             return Ok(Self::WRQ(wrq));
+        }
+
+        if let Ok(data) = DATAPacket::parse(data) {
+            return Ok(Self::DATA(data));
         }
 
         if let Ok(ack) = ACKPacket::parse(data) {
