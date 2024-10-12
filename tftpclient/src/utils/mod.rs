@@ -35,8 +35,8 @@ impl ClientArgs {
         let action;
 
         match args[1].to_lowercase().as_str() {
-            "write" => action = ClientAction::Write,
             "read" => action = ClientAction::Read,
+            "write" => action = ClientAction::Write,
             _ => return Err(String::from("Invalid [ACTION]")),
         }
 

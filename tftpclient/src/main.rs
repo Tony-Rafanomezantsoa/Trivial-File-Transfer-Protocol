@@ -1,7 +1,7 @@
-use std::net::UdpSocket;
+use std::{intrinsics::mir::Return, net::UdpSocket};
 
-use rand::Rng;
-use tftppacket::{ACKPacket, DATAPacket, ERRORPacket, RRQPacket, WRQPacket};
+use rand::{Error, Rng};
+use tftppacket::{ACKPacket, DATAPacket, ERRORPacket, RRQPacket, TFTPPacket, WRQPacket};
 use utils::{ClientAction, ClientArgs};
 
 mod utils;
@@ -9,14 +9,14 @@ mod utils;
 fn main() -> Result<(), String> {
     let client_args = ClientArgs::build()?;
 
-    let client_tid: u16 = rand::thread_rng().gen_range(0..=65535);
+    let client_socket = loop {
+        let client_tid: u16 = rand::thread_rng().gen_range(0..=65535);
 
-    let client_socket = UdpSocket::bind(format!("0.0.0.0:{}", client_tid)).map_err(|e| {
-        format!(
-            "Unable to initialize an UDP socket client, please retry: {}",
-            e
-        )
-    })?;
+        match UdpSocket::bind(format!("0.0.0.0:{}", client_tid)) {
+            Ok(socket) => break socket,
+            Err(_) => continue,
+        };
+    };
 
     match client_args.action {
         ClientAction::Read => {
@@ -24,38 +24,49 @@ fn main() -> Result<(), String> {
 
             client_socket
                 .send_to(&rrq, format!("{}:69", client_args.remote_ip))
-                .map_err(|e| format!("Unable to initialize a RRQ: {}", e))?;
+                .map_err(|e| format!("Unable to initialize a RRQ packet to the server: {}", e))?;
 
-            // Create a buffer for the first TFTP DATA packet
+            // Create a buffer to store the first TFTP DATA packet
             // - Opcode: 2 bytes
             // - Block number: 2 bytes
             // - Data: 512 bytes
             let mut response = [0_u8; 516];
 
-            let (_, remote_addr) = client_socket
+            let (_, server_addr) = client_socket
                 .recv_from(&mut response)
-                .map_err(|e| format!("Unable to receive the first DATA packet: {}", e))?;
+                .map_err(|e| format!("Unable to receive a DATA packet from the server: {}", e))?;
 
-            let first_data_packet = match DATAPacket::parse(response) {
-                Ok(packet) => packet,
-                Err(e) => {
-                    let error = ERRORPacket::create_custom_error_packet(&e);
-                    client_socket.send_to(&error, remote_addr.clone());
-                    return Err(format!("File transmission aborted due to an error: {}", e));
+            let first_data_packet = match TFTPPacket::parse(&response) {
+                Ok(TFTPPacket::DATA(packet)) => packet,
+                Ok(TFTPPacket::ERROR(err_packet)) => {
+                    return Err(format!(
+                        "File transmission aborted due to an error: {}",
+                        err_packet.get_error_message()
+                    ));
+                }
+                _ => {
+                    let err_packet = ERRORPacket::IllegalTftpOperation;
+                    client_socket.send_to(&err_packet.as_bytes(), server_addr);
+                    return Err(format!(
+                        "File transmission aborted due to an error: {}",
+                        err_packet.get_error_message()
+                    ));
                 }
             };
 
             if first_data_packet.block != 1 {
-                let error = ERRORPacket::create_custom_error_packet(
-                    "Received data with an invalid block number.",
-                );
-                client_socket.send_to(&error, remote_addr.clone());
-                return Err(String::from(
-                    "File transmission aborted due to an error: Received data with an invalid block number."
+                let err_packet = ERRORPacket::IllegalTftpOperation;
+                client_socket.send_to(&err_packet.as_bytes(), server_addr);
+                return Err(format!(
+                    "File transmission aborted due to an error: {}",
+                    err_packet.get_error_message()
                 ));
             }
 
-            let server_tid = remote_addr.port();
+            let server_tid = server_addr.port();
+
+            println!("SERVER TID: {}", server_tid);
+            println!("DATA: {:#?}", first_data_packet);
         }
 
         ClientAction::Write => {
@@ -63,37 +74,46 @@ fn main() -> Result<(), String> {
 
             client_socket
                 .send_to(&wrq, format!("{}:69", client_args.remote_ip))
-                .map_err(|e| format!("Unable to initialize a WRQ: {}", e))?;
+                .map_err(|e| format!("Unable to initialize a WRQ packet to the server: {}", e))?;
 
-            // Create a buffer for the first TFTP ACK packet
+            // Create a buffer to store the
+            // first TFTP ACK packet for write
             // - Opcode: 2 bytes
             // - Block number: 2 bytes
             let mut response = [0_u8; 4];
 
-            let (_, remote_addr) = client_socket
+            let (_, server_addr) = client_socket
                 .recv_from(&mut response)
-                .map_err(|e| format!("Unable to receive the first ACK packet: {}", e))?;
+                .map_err(|e| format!("Unable to receive a ACK packet from the server: {}", e))?;
 
-            let ack_packet_for_write = match ACKPacket::parse(response) {
-                Ok(packet) => packet,
-                Err(e) => {
-                    let error = ERRORPacket::create_custom_error_packet(&e);
-                    client_socket.send_to(&error, remote_addr.clone());
-                    return Err(format!("File transmission aborted due to an error: {}", e));
+            let ack_packet_for_write = match TFTPPacket::parse(&response) {
+                Ok(TFTPPacket::ACK(packet)) => packet,
+                Ok(TFTPPacket::ERROR(err_packet)) => {
+                    return Err(format!(
+                        "File transmission aborted due to an error: {}",
+                        err_packet.get_error_message()
+                    ));
+                }
+                _ => {
+                    let err_packet = ERRORPacket::IllegalTftpOperation;
+                    client_socket.send_to(&err_packet.as_bytes(), server_addr);
+                    return Err(format!(
+                        "File transmission aborted due to an error: {}",
+                        err_packet.get_error_message()
+                    ));
                 }
             };
 
             if ack_packet_for_write.block != 0 {
-                let error = ERRORPacket::create_custom_error_packet(
-                    "Received ACK with an invalid block number.",
-                );
-                client_socket.send_to(&error, remote_addr.clone());
-                return Err(String::from(
-                    "File transmission aborted due to an error: Received ACK with an invalid block number."
+                let err_packet = ERRORPacket::IllegalTftpOperation;
+                client_socket.send_to(&err_packet.as_bytes(), server_addr);
+                return Err(format!(
+                    "File transmission aborted due to an error: {}",
+                    err_packet.get_error_message()
                 ));
             }
 
-            let server_tid = remote_addr.port();
+            let server_tid = server_addr.port();
         }
     }
 
