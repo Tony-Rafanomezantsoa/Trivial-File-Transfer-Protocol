@@ -294,11 +294,17 @@ impl ERRORPacket {
     /// Converts a `ERRORPacket` into a TFTP ERROR packet in byte format.
     pub fn as_bytes(&self) -> Vec<u8> {
         match *self {
-            Self::NotDefined(ref error_message) => Self::create_custom_error_packet(0, error_message),
+            Self::NotDefined(ref error_message) => {
+                Self::create_custom_error_packet(0, error_message)
+            }
             Self::FileNotFound => Self::create_custom_error_packet(1, "File not found."),
             Self::AccessViolation => Self::create_custom_error_packet(2, "Access violation."),
-            Self::DiskFull => Self::create_custom_error_packet(3, "Disk full or allocation exceeded."),
-            Self::IllegalTftpOperation => Self::create_custom_error_packet(4, "Illegal TFTP operation."),
+            Self::DiskFull => {
+                Self::create_custom_error_packet(3, "Disk full or allocation exceeded.")
+            }
+            Self::IllegalTftpOperation => {
+                Self::create_custom_error_packet(4, "Illegal TFTP operation.")
+            }
             Self::UknownTransferID => Self::create_custom_error_packet(5, "Unknown transfer ID."),
             Self::FileAlreadyExists => Self::create_custom_error_packet(6, "File already exists."),
             Self::NoSuchUser => Self::create_custom_error_packet(7, "No such user."),
@@ -351,6 +357,20 @@ impl ERRORPacket {
             6 => Ok(Self::FileAlreadyExists),
             7 => Ok(Self::NoSuchUser),
             _ => Err(String::from("Invalid ERROR packet")),
+        }
+    }
+
+    /// Retrieve the error message from a TFTP ERROR packet.
+    pub fn get_error_message(&self) -> String {
+        match *self {
+            Self::NotDefined(ref error_message) => error_message.to_string(),
+            Self::FileNotFound => "File not found.".to_string(),
+            Self::AccessViolation => "Access violation.".to_string(),
+            Self::DiskFull => "Disk full or allocation exceeded.".to_string(),
+            Self::IllegalTftpOperation => "Illegal TFTP operation.".to_string(),
+            Self::UknownTransferID => "Unknown transfer ID.".to_string(),
+            Self::FileAlreadyExists => "File already exists.".to_string(),
+            Self::NoSuchUser => "No such user.".to_string(),
         }
     }
 }
