@@ -13,14 +13,13 @@ pub enum ClientAction {
 /// Contains all arguments required by a TFTP client.
 ///
 /// This struct holds the necessary parameters for performing TFTP operations,
-/// including the action to be taken, the target filename, the remote IP address
-/// of the server, and the mode of transfer.
+/// including the action to be taken, the target filename and the remote IP address
+/// of the server.
 #[derive(Debug)]
 pub struct ClientArgs {
     pub action: ClientAction,
     pub filename: String,
     pub remote_ip: IpAddr,
-    pub mode: String,
 }
 
 impl ClientArgs {
@@ -28,7 +27,7 @@ impl ClientArgs {
     pub fn build() -> Result<Self, String> {
         let args = env::args().collect::<Vec<String>>();
 
-        if args.len() != 5 {
+        if args.len() != 4 {
             return Err(String::from("Invalid arguments"));
         }
 
@@ -49,15 +48,10 @@ impl ClientArgs {
             Err(_) => return Err(String::from("Invalid [REMOTE IP ADDRESS]")),
         };
 
-        if args[4].is_empty() {
-            return Err(String::from("[MODE] is empty"));
-        }
-
         Ok(Self {
             action,
             filename: args[2].clone(),
             remote_ip,
-            mode: args[4].clone(),
         })
     }
 }

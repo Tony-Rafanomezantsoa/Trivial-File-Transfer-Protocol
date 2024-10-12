@@ -1,7 +1,7 @@
-use std::{intrinsics::mir::Return, net::UdpSocket};
+use std::{fs::File, io::Write, net::UdpSocket};
 
-use rand::{Error, Rng};
-use tftppacket::{ACKPacket, DATAPacket, ERRORPacket, RRQPacket, TFTPPacket, WRQPacket};
+use rand::Rng;
+use tftppacket::{ERRORPacket, RRQPacket, TFTPPacket, WRQPacket};
 use utils::{ClientAction, ClientArgs};
 
 mod utils;
@@ -20,7 +20,7 @@ fn main() -> Result<(), String> {
 
     match client_args.action {
         ClientAction::Read => {
-            let rrq = RRQPacket::create_rrq_packet(&client_args.filename, &client_args.mode);
+            let rrq = RRQPacket::create_rrq_packet(&client_args.filename, "octet");
 
             client_socket
                 .send_to(&rrq, format!("{}:69", client_args.remote_ip))
@@ -64,13 +64,10 @@ fn main() -> Result<(), String> {
             }
 
             let server_tid = server_addr.port();
-
-            println!("SERVER TID: {}", server_tid);
-            println!("DATA: {:#?}", first_data_packet);
         }
 
         ClientAction::Write => {
-            let wrq = WRQPacket::create_wrq_packet(&client_args.filename, &client_args.mode);
+            let wrq = WRQPacket::create_wrq_packet(&client_args.filename, "octet");
 
             client_socket
                 .send_to(&wrq, format!("{}:69", client_args.remote_ip))
