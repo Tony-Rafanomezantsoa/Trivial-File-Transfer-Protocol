@@ -224,6 +224,22 @@ impl DATAPacket {
             data: data_packet,
         })
     }
+
+    /// Converts a `DATAPacket` into a TFTP DATA packet in byte format.
+    pub fn as_bytes(&self) -> Vec<u8> {
+        let mut packet: Vec<u8> = Vec::new();
+        
+        // DATA opcode = 3
+        packet.extend_from_slice(&Self::OPCODE.to_be_bytes());
+
+        // DATA block
+        packet.extend_from_slice(&self.block.to_be_bytes());
+
+        // DATA sequence
+        packet.extend_from_slice(&self.data);
+
+        packet
+    }
 }
 
 /// Represents a TFTP ACK Packet.
@@ -377,6 +393,7 @@ impl ERRORPacket {
 
 /// Represents all TFTP packets
 /// decsribed in RFC 1350.
+#[derive(Debug)]
 pub enum TFTPPacket {
     RRQ(RRQPacket),
     WRQ(WRQPacket),

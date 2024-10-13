@@ -64,6 +64,10 @@ fn main() -> Result<(), String> {
             }
 
             let server_tid = server_addr.port();
+
+            println!("SERVER PORT: {}", server_tid);
+
+            println!("DATA: {:#?}", first_data_packet);
         }
 
         ClientAction::Write => {

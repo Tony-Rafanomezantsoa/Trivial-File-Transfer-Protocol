@@ -1,8 +1,9 @@
-use core::error;
-use std::{env, fmt::Display, fs::File, io::Read, net::UdpSocket};
+use std::{
+    env, fs::File, io::Read, net::{SocketAddr, UdpSocket}
+};
 
 use rand::Rng;
-use tftppacket::{ERRORPacket, RRQPacket, RequestPacket, WRQPacket};
+use tftppacket::{DATAPacket, ERRORPacket, RRQPacket, TFTPPacket, WRQPacket};
 
 fn main() -> Result<(), String> {
     let server_socket = UdpSocket::bind("0.0.0.0:69")
@@ -11,91 +12,88 @@ fn main() -> Result<(), String> {
     println!("The TFTP server is running successfully...");
 
     loop {
-        let mut request = [0_u8; 1024];
+        let mut request = [0_u8; 512];
 
         let (_, client_addr) = match server_socket.recv_from(&mut request) {
             Ok(recv_info) => recv_info,
             Err(e) => {
-                eprintln!(
-                    "The server is unable to receive the TFTP request packet: {}",
-                    e
-                );
+                eprintln!("Unable to receive a TFTP request packet: {}", e);
                 continue;
             }
         };
 
-        let request = match RequestPacket::parse(&request) {
-            Ok(rq) => rq,
-            Err(_) => {
-                let error = ERRORPacket::create_custom_error_packet(
-                    "The server received an invalid TFTP request packet.",
-                );
-                server_socket.send_to(&error, client_addr);
+        match TFTPPacket::parse(&request) {
+            Ok(TFTPPacket::RRQ(rrq)) => client_read_from_server(rrq, client_addr),
+            Ok(TFTPPacket::WRQ(wrq)) => client_write_to_server(wrq, client_addr),
+            _ => {
+                let err_packet = ERRORPacket::IllegalTftpOperation;
+                server_socket.send_to(&err_packet.as_bytes(), client_addr);
+                eprintln!("Error: {}", err_packet.get_error_message());
                 continue;
             }
-        };
-
-        println!("CLIENT ADDR: {}", client_addr);
-
-        println!("REQUEST: {:#?}", request);
-
-        match request {
-            RequestPacket::RRQ(rrq) => {
-                let sub_server_socket = loop {
-                    let server_tid: u16 = rand::thread_rng().gen_range(0..=65535);
-
-                    match UdpSocket::bind(format!("0.0.0.0:{}", server_tid)) {
-                        Ok(socket) => break socket,
-                        Err(_) => continue,
-                    }
-                };
-
-                if rrq.mode.to_lowercase() != "octet" {
-                    let error = ERRORPacket::create_custom_error_packet(
-                        "The server only supports the 'octet' mode for file transfers",
-                    );
-                    server_socket.send_to(&error, client_addr);
-                    continue;
-                }
-
-                ///////////////////////////////////////////////////////
-                //                  EXPERIMENTAL
-                ///////////////////////////////////////////////////////
-                
-
-                let server_bin_path = match env::current_exe() {
-                    Ok(server_bin_path) => server_bin_path,
-                    Err(e) => {
-                        let error = ERRORPacket::create_custom_error_packet(
-                            format!("An error has occurred on the server: {}", e).as_str(),
-                        );
-                        server_socket.send_to(&error, client_addr);
-                        continue;
-                    }
-                };
-
-                let file_path = server_bin_path.parent().unwrap().join(&rrq.filename);
-
-                let mut file = match File::open(file_path) {
-                    Ok(f) => f,
-                    Err(_) => continue, // **************** FILE NOT FOUND ERROR ******************
-                };
-
-                let mut buffer = [0_u8; 512];
-
-                file.read(&mut buffer).unwrap();
-
-                let mut data_packet: Vec<u8> = Vec::new();
-
-                data_packet.extend_from_slice(&3_u16.to_be_bytes());
-
-                data_packet.extend_from_slice(&1_u16.to_be_bytes());
-                
-                data_packet.extend_from_slice(&buffer);
-
-                sub_server_socket.send_to(&data_packet, client_addr);
-            }
-            RequestPacket::WRQ(wrq) => {}
         }
     }
 }
+
+fn client_read_from_server(rrq: RRQPacket, client_addr: SocketAddr) {
+    let server_socket = loop {
+        let server_tid: u16 = rand::thread_rng().gen_range(0..65535);
+
+        match UdpSocket::bind(format!("0.0.0.0:{}", server_tid)) {
+            Ok(socket) => break socket,
+            Err(_) => continue,
+        }
+    };
+
+    if rrq.mode.to_lowercase() != "octet" {
+        let err_packet =
+            ERRORPacket::NotDefined("The server supports only the 'octet' mode".to_string());
+        server_socket.send_to(&err_packet.as_bytes(), client_addr);
+        eprintln!("Error: {}", err_packet.get_error_message());
+        return;
+    }
+
+    let bin_dir = match env::current_exe() {
+        Ok(bin_path) => bin_path.parent().unwrap().to_owned(),
+        Err(e) => {
+            let err_packet =
+                ERRORPacket::NotDefined(format!("An error occurs on the server: {}", e));
+            server_socket.send_to(&err_packet.as_bytes(), client_addr);
+            eprintln!("Error: {}", e);
+            return;
+        }
+    };
+
+    let mut file = match File::open(bin_dir.join(&rrq.filename)) {
+        Ok(f) => f,
+        Err(e) => {
+            let err_packet =
+                ERRORPacket::NotDefined(format!("An error occurs on the server: {}", e));
+            server_socket.send_to(&err_packet.as_bytes(), client_addr);
+            eprintln!("Error: {}", e);
+            return;
+        }
+    };
+
+    let mut data = [0_u8; 512];
+
+    match file.read(&mut data) {
+        Ok(_) => (),
+        Err(e) => {
+            let err_packet =
+                ERRORPacket::NotDefined(format!("An error occurs on the server: {}", e));
+            server_socket.send_to(&err_packet.as_bytes(), client_addr);
+            eprintln!("Error: {}", e);
+            return;
+        }
+    }
+
+    let data = DATAPacket {
+        block: 1,
+        data
+    };
+
+    server_socket.send_to(&data.as_bytes(), client_addr);
+}
+
+fn client_write_to_server(wrq: WRQPacket, client_addr: SocketAddr) {}
