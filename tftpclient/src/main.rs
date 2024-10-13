@@ -1,4 +1,4 @@
-use std::{fs::File, io::Write, net::UdpSocket};
+use std::{env, fs::File, net::UdpSocket};
 
 use rand::Rng;
 use tftppacket::{ERRORPacket, RRQPacket, TFTPPacket, WRQPacket};
@@ -67,6 +67,12 @@ fn main() -> Result<(), String> {
         }
 
         ClientAction::Write => {
+            let current_dir = env::current_dir()
+                .map_err(|e| format!("File transmission aborted due to an error: {}", e))?;
+
+            let file = File::open(current_dir.join(&client_args.filename))
+                .map_err(|e| format!("File transmission aborted due to an error: {}", e))?;
+
             let wrq = WRQPacket::create_wrq_packet(&client_args.filename, "octet");
 
             client_socket
