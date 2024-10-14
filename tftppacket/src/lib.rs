@@ -269,6 +269,19 @@ impl ACKPacket {
 
         Ok(Self { block })
     }
+
+    /// Converts a `ACKPacket` into a TFTP ACK packet in byte format.
+    pub fn as_bytes(&self) -> Vec<u8> {
+        let mut packet: Vec<u8> = Vec::new();
+
+        // ACK opcode = 4
+        packet.extend_from_slice(&Self::OPCODE.to_be_bytes());
+
+        // ACK block
+        packet.extend_from_slice(&self.block.to_be_bytes());
+        
+        packet
+    }
 }
 
 /// Represents a TFTP ERROR Packet.

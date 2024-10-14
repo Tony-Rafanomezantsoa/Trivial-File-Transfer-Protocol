@@ -121,6 +121,10 @@ fn main() -> Result<(), String> {
             }
 
             let server_tid = server_addr.port();
+
+            println!("SERVER PORT: {}", server_tid);
+
+            println!("ACK: {:#?}", ack_packet_for_write);
         }
     }
 

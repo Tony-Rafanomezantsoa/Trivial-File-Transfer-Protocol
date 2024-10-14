@@ -3,7 +3,7 @@ use std::{
 };
 
 use rand::Rng;
-use tftppacket::{DATAPacket, ERRORPacket, RRQPacket, TFTPPacket, WRQPacket};
+use tftppacket::{ACKPacket, DATAPacket, ERRORPacket, RRQPacket, TFTPPacket, WRQPacket};
 
 fn main() -> Result<(), String> {
     let server_socket = UdpSocket::bind("0.0.0.0:69")
@@ -96,4 +96,27 @@ fn client_read_from_server(rrq: RRQPacket, client_addr: SocketAddr) {
     server_socket.send_to(&data.as_bytes(), client_addr);
 }
 
-fn client_write_to_server(wrq: WRQPacket, client_addr: SocketAddr) {}
+fn client_write_to_server(wrq: WRQPacket, client_addr: SocketAddr) {
+    let server_socket = loop {
+        let server_tid: u16 = rand::thread_rng().gen_range(0..65535);
+
+        match UdpSocket::bind(format!("0.0.0.0:{}", server_tid)) {
+            Ok(socket) => break socket,
+            Err(_) => continue,
+        }
+    };
+
+    if wrq.mode.to_lowercase() != "octet" {
+        let err_packet =
+            ERRORPacket::NotDefined("The server supports only the 'octet' mode".to_string());
+        server_socket.send_to(&err_packet.as_bytes(), client_addr);
+        eprintln!("Error: {}", err_packet.get_error_message());
+        return;
+    }
+
+    let data = ACKPacket {
+        block: 0,
+    };
+
+    server_socket.send_to(&data.as_bytes(), client_addr);
+}
