@@ -176,14 +176,37 @@ impl WRQPacket {
 #[derive(Debug)]
 pub struct DATAPacket {
     pub block: u16,
-    pub data: [u8; 512],
+    data: Vec<u8>,
 }
 
 impl DATAPacket {
     pub const OPCODE: u16 = 3;
 
+    /// Build a new `DATAPacket` instance.
+    pub fn build(block: u16, data: &[u8]) -> Result<Self, String> {
+        // The maximum length of a data in
+        // a TFTP DATA packet is equal to 512 bytes
+        if data.len() > 512 {
+            return Err(String::from("Invalid TFTP DATA packet"));
+        }
+
+        Ok(Self {
+            block,
+            data: data.to_vec(),
+        })
+    }
+
     /// Parses a raw byte slice into a `DATAPacket`.
     pub fn parse(data: &[u8]) -> Result<Self, String> {
+        // The maximum length of a TFTP DATA packet
+        // is equal to 516 bytes:
+        // - Opcode: 2 bytes
+        // - Block number: 2 bytes
+        // - Data: 512 bytes
+        if data.len() > 516 {
+            return Err(String::from("Invalid TFTP DATA packet"));
+        }
+
         let opcode = match data.get(0..2) {
             Some(v) => u16::from_be_bytes(v.try_into().unwrap()),
             None => return Err(String::from("Invalid TFTP DATA packet")),
@@ -198,8 +221,7 @@ impl DATAPacket {
             None => return Err(String::from("Invalid TFTP DATA packet")),
         };
 
-        let mut data_packet = [0; 512];
-        let mut data_packet_index = 0;
+        let mut data_packet = Vec::new();
 
         for (i, byte) in data.iter().enumerate() {
             // Skip Opcode and block bytes
@@ -207,16 +229,7 @@ impl DATAPacket {
                 continue;
             }
 
-            // The maximum size of TFTP DATA packet
-            // is equal to 516 bytes, which includes
-            // the opcode (2 bytes), block number (2 bytes),
-            // and data (512 bytes).
-            if i < 516 {
-                data_packet[data_packet_index] = *byte;
-                data_packet_index += 1;
-            } else {
-                break;
-            }
+            data_packet.push(*byte);
         }
 
         Ok(Self {
@@ -239,6 +252,12 @@ impl DATAPacket {
         packet.extend_from_slice(&self.data);
 
         packet
+    }
+
+    /// Get the data in a TFTP DATA packet (`DATAPacket`) 
+    /// in byte format.
+    pub fn get_data(&self) -> &[u8] {
+        &self.data
     }
 }
 

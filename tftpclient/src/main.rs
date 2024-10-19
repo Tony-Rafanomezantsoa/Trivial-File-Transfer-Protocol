@@ -1,7 +1,13 @@
-use std::{env, fs::File, net::UdpSocket};
+use std::{
+    env,
+    fs::{File, OpenOptions},
+    io::Write,
+    net::UdpSocket,
+    path::Path,
+};
 
 use rand::Rng;
-use tftppacket::{ERRORPacket, RRQPacket, TFTPPacket, WRQPacket};
+use tftppacket::{ACKPacket, ERRORPacket, RRQPacket, TFTPPacket, WRQPacket};
 use utils::{ClientAction, ClientArgs};
 
 mod utils;
@@ -30,13 +36,13 @@ fn main() -> Result<(), String> {
             // - Opcode: 2 bytes
             // - Block number: 2 bytes
             // - Data: 512 bytes
-            let mut response = [0_u8; 516];
+            let mut response = [0_u8;516];
 
-            let (_, server_addr) = client_socket
+            let (recv_packet_len, server_addr) = client_socket
                 .recv_from(&mut response)
                 .map_err(|e| format!("Unable to receive a DATA packet from the server: {}", e))?;
 
-            let first_data_packet = match TFTPPacket::parse(&response) {
+            let first_data_packet = match TFTPPacket::parse(&response[..recv_packet_len]) {
                 Ok(TFTPPacket::DATA(packet)) => packet,
                 Ok(TFTPPacket::ERROR(err_packet)) => {
                     return Err(format!(
@@ -63,11 +69,35 @@ fn main() -> Result<(), String> {
                 ));
             }
 
-            let server_tid = server_addr.port();
+            let working_dir = env::current_dir()
+                .map_err(|e| format!("File transmission aborted due to an error: {}", e))?;
 
-            println!("SERVER PORT: {}", server_tid);
+            let filename = Path::new(&client_args.filename).file_name().unwrap();
 
-            println!("DATA: {:#?}", first_data_packet);
+            let mut file = OpenOptions::new()
+                .create_new(true)
+                .append(true)
+                .open(working_dir.join(filename))
+                .map_err(|e| format!("File transmission aborted due to an error: {}", e))?;
+
+            let write_bytes = file.write(first_data_packet.get_data())
+                .map_err(|e| format!("File transmission aborted due to an error: {}", e))?;
+
+            let ack = ACKPacket {
+                block: first_data_packet.block,
+            };
+
+            client_socket
+                .send_to(&ack.as_bytes(), server_addr)
+                .map_err(|e| format!("File transmission aborted due to an error: {}", e))?;
+
+            if write_bytes < 512 {
+                println!("Download completed!");
+                println!("File path: {}", working_dir.join(filename).display());
+                return Ok(());
+            }
+
+            let last_block_number = first_data_packet.block;
         }
 
         ClientAction::Write => {

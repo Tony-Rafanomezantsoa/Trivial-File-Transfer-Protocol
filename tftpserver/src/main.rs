@@ -77,8 +77,8 @@ fn client_read_from_server(rrq: RRQPacket, client_addr: SocketAddr) {
 
     let mut data = [0_u8; 512];
 
-    match file.read(&mut data) {
-        Ok(_) => (),
+    let bytes = match file.read(&mut data) {
+        Ok(bytes) => bytes,
         Err(e) => {
             let err_packet =
                 ERRORPacket::NotDefined(format!("An error occurs on the server: {}", e));
@@ -86,14 +86,11 @@ fn client_read_from_server(rrq: RRQPacket, client_addr: SocketAddr) {
             eprintln!("Error: {}", e);
             return;
         }
-    }
-
-    let data = DATAPacket {
-        block: 1,
-        data
     };
 
-    server_socket.send_to(&data.as_bytes(), client_addr);
+    let first_data_packet = DATAPacket::build(1, &data[..bytes]).unwrap();
+
+    server_socket.send_to(&first_data_packet.as_bytes(), client_addr);
 }
 
 fn client_write_to_server(wrq: WRQPacket, client_addr: SocketAddr) {
