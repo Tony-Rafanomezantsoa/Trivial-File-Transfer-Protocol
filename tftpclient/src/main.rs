@@ -2,13 +2,13 @@ use std::{
     env,
     fmt::format,
     fs::{File, OpenOptions},
-    io::Write,
+    io::{Read, Write},
     net::UdpSocket,
     path::Path,
 };
 
 use rand::Rng;
-use tftppacket::{ACKPacket, ERRORPacket, RRQPacket, TFTPPacket, WRQPacket};
+use tftppacket::{ACKPacket, DATAPacket, ERRORPacket, RRQPacket, TFTPPacket, WRQPacket};
 use utils::{ClientAction, ClientArgs};
 
 mod utils;
@@ -169,7 +169,7 @@ fn main() -> Result<(), String> {
             let current_dir = env::current_dir()
                 .map_err(|e| format!("File transmission aborted due to an error: {}", e))?;
 
-            let file = File::open(current_dir.join(&client_args.filename))
+            let mut file = File::open(current_dir.join(&client_args.filename))
                 .map_err(|e| format!("File transmission aborted due to an error: {}", e))?;
 
             let wrq = WRQPacket::create_wrq_packet(&client_args.filename, "octet");
@@ -184,7 +184,7 @@ fn main() -> Result<(), String> {
             // - Block number: 2 bytes
             let mut response = [0_u8; 4];
 
-            let (_, server_addr) = client_socket
+            let (_, origin_server_addr) = client_socket
                 .recv_from(&mut response)
                 .map_err(|e| format!("Unable to receive a ACK packet from the server: {}", e))?;
 
@@ -198,7 +198,7 @@ fn main() -> Result<(), String> {
                 }
                 _ => {
                     let err_packet = ERRORPacket::IllegalTftpOperation;
-                    client_socket.send_to(&err_packet.as_bytes(), server_addr);
+                    client_socket.send_to(&err_packet.as_bytes(), origin_server_addr);
                     return Err(format!(
                         "File transmission aborted due to an error: {}",
                         err_packet.get_error_message()
@@ -208,18 +208,70 @@ fn main() -> Result<(), String> {
 
             if ack_packet_for_write.block != 0 {
                 let err_packet = ERRORPacket::IllegalTftpOperation;
-                client_socket.send_to(&err_packet.as_bytes(), server_addr);
+                client_socket.send_to(&err_packet.as_bytes(), origin_server_addr);
                 return Err(format!(
                     "File transmission aborted due to an error: {}",
                     err_packet.get_error_message()
                 ));
             }
 
-            let server_tid = server_addr.port();
+            let current_block_number = 1;
 
-            println!("SERVER PORT: {}", server_tid);
+            let mut data_buffer = [0_u8; 512];
 
-            println!("ACK: {:#?}", ack_packet_for_write);
+            let read_bytes = file
+                .read(&mut data_buffer)
+                .map_err(|e| format!("File transmission aborted due to an error: {}", e))?;
+
+            let data_packet =
+                DATAPacket::build(current_block_number, &data_buffer[..read_bytes]).unwrap();
+
+            client_socket
+                .send_to(&data_packet.as_bytes(), origin_server_addr)
+                .map_err(|e| format!("File transmission aborted due to an error: {}", e))?;
+
+            // Create a buffer to store the ACK packet
+            let mut response = [0_u8; 4];
+
+            client_socket
+                .recv_from(&mut response)
+                .map_err(|e| format!("Unable to receive a ACK packet from the server: {}", e))?;
+
+            let ack_packet = match TFTPPacket::parse(&response) {
+                Ok(TFTPPacket::ACK(packet)) => packet,
+                Ok(TFTPPacket::ERROR(err_packet)) => {
+                    return Err(format!(
+                        "File transmission aborted due to an error: {}",
+                        err_packet.get_error_message()
+                    ));
+                }
+                _ => {
+                    let err_packet = ERRORPacket::IllegalTftpOperation;
+                    client_socket.send_to(&err_packet.as_bytes(), origin_server_addr);
+                    return Err(format!(
+                        "File transmission aborted due to an error: {}",
+                        err_packet.get_error_message()
+                    ));
+                }
+            };
+
+            if ack_packet.block != current_block_number {
+                let err_packet = ERRORPacket::IllegalTftpOperation;
+                client_socket.send_to(&err_packet.as_bytes(), origin_server_addr);
+                return Err(format!(
+                    "File transmission aborted due to an error: {}",
+                    err_packet.get_error_message()
+                ));
+            }
+
+            if read_bytes < 512 {
+                println!("Upload completed!");
+                return Ok(());
+            }
+
+            //===========================================
+            //  REMAINING FILE TRANSMISSION LOOP [WRITE]
+            //===========================================
         }
     }
 
