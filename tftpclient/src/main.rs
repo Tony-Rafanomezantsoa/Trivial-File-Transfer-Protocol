@@ -1,6 +1,5 @@
 use std::{
     env,
-    fmt::format,
     fs::{File, OpenOptions},
     io::{Read, Write},
     net::UdpSocket,
@@ -39,9 +38,14 @@ fn main() -> Result<(), String> {
             // - Data: 512 bytes
             let mut response = [0_u8; 516];
 
-            let (recv_packet_len, origin_server_addr) = client_socket
+            let (recv_packet_len, server_addr) = client_socket
                 .recv_from(&mut response)
                 .map_err(|e| format!("Unable to receive a DATA packet from the server: {}", e))?;
+
+            // Ensure connection with the server
+            client_socket
+                .connect(server_addr)
+                .map_err(|e| format!("Unable to etablish a connection with the server: {}", e))?;
 
             let first_data_packet = match TFTPPacket::parse(&response[..recv_packet_len]) {
                 Ok(TFTPPacket::DATA(packet)) => packet,
@@ -53,7 +57,7 @@ fn main() -> Result<(), String> {
                 }
                 _ => {
                     let err_packet = ERRORPacket::IllegalTftpOperation;
-                    client_socket.send_to(&err_packet.as_bytes(), origin_server_addr);
+                    client_socket.send(&err_packet.as_bytes());
                     return Err(format!(
                         "File transmission aborted due to an error: {}",
                         err_packet.get_error_message()
@@ -63,7 +67,7 @@ fn main() -> Result<(), String> {
 
             if first_data_packet.block != 1 {
                 let err_packet = ERRORPacket::IllegalTftpOperation;
-                client_socket.send_to(&err_packet.as_bytes(), origin_server_addr);
+                client_socket.send(&err_packet.as_bytes());
                 return Err(format!(
                     "File transmission aborted due to an error: {}",
                     err_packet.get_error_message()
@@ -90,7 +94,7 @@ fn main() -> Result<(), String> {
             };
 
             client_socket
-                .send_to(&ack.as_bytes(), origin_server_addr)
+                .send(&ack.as_bytes())
                 .map_err(|e| format!("File transmission aborted due to an error: {}", e))?;
 
             if write_bytes < 512 {
@@ -106,15 +110,9 @@ fn main() -> Result<(), String> {
                 // TFTP DATA packet (516 bytes)
                 let mut response = [0_u8; 516];
 
-                let (recv_packet_len, server_addr) = client_socket
-                    .recv_from(&mut response)
+                client_socket
+                    .recv(&mut response)
                     .map_err(|e| format!("File transmission aborted due to an error: {}", e))?;
-
-                if server_addr != origin_server_addr {
-                    let err_packet = ERRORPacket::UknownTransferID;
-                    client_socket.send_to(&err_packet.as_bytes(), server_addr);
-                    continue;
-                }
 
                 let data_packet = match TFTPPacket::parse(&response[..recv_packet_len]) {
                     Ok(TFTPPacket::DATA(packet)) => packet,
@@ -126,7 +124,7 @@ fn main() -> Result<(), String> {
                     }
                     _ => {
                         let err_packet = ERRORPacket::IllegalTftpOperation;
-                        client_socket.send_to(&err_packet.as_bytes(), server_addr);
+                        client_socket.send(&err_packet.as_bytes());
                         return Err(format!(
                             "File transmission aborted due to an error: {}",
                             err_packet.get_error_message()
@@ -136,7 +134,7 @@ fn main() -> Result<(), String> {
 
                 if data_packet.block != (last_block_number + 1) {
                     let err_packet = ERRORPacket::IllegalTftpOperation;
-                    client_socket.send_to(&err_packet.as_bytes(), server_addr);
+                    client_socket.send(&err_packet.as_bytes());
                     return Err(format!(
                         "File transmission aborted due to an error: {}",
                         err_packet.get_error_message()
@@ -152,7 +150,7 @@ fn main() -> Result<(), String> {
                 };
 
                 client_socket
-                    .send_to(&ack.as_bytes(), server_addr)
+                    .send(&ack.as_bytes())
                     .map_err(|e| format!("File transmission aborted due to an error: {}", e))?;
 
                 if write_bytes < 512 {
@@ -184,9 +182,14 @@ fn main() -> Result<(), String> {
             // - Block number: 2 bytes
             let mut response = [0_u8; 4];
 
-            let (_, origin_server_addr) = client_socket
+            let (_, server_addr) = client_socket
                 .recv_from(&mut response)
                 .map_err(|e| format!("Unable to receive a ACK packet from the server: {}", e))?;
+
+            // Ensure connection with the server
+            client_socket
+                .connect(server_addr)
+                .map_err(|e| format!("Unable to etablish a connection with the server: {}", e))?;
 
             let ack_packet_for_write = match TFTPPacket::parse(&response) {
                 Ok(TFTPPacket::ACK(packet)) => packet,
@@ -198,7 +201,7 @@ fn main() -> Result<(), String> {
                 }
                 _ => {
                     let err_packet = ERRORPacket::IllegalTftpOperation;
-                    client_socket.send_to(&err_packet.as_bytes(), origin_server_addr);
+                    client_socket.send(&err_packet.as_bytes());
                     return Err(format!(
                         "File transmission aborted due to an error: {}",
                         err_packet.get_error_message()
@@ -208,7 +211,7 @@ fn main() -> Result<(), String> {
 
             if ack_packet_for_write.block != 0 {
                 let err_packet = ERRORPacket::IllegalTftpOperation;
-                client_socket.send_to(&err_packet.as_bytes(), origin_server_addr);
+                client_socket.send(&err_packet.as_bytes());
                 return Err(format!(
                     "File transmission aborted due to an error: {}",
                     err_packet.get_error_message()
@@ -227,14 +230,14 @@ fn main() -> Result<(), String> {
                 DATAPacket::build(current_block_number, &data_buffer[..read_bytes]).unwrap();
 
             client_socket
-                .send_to(&data_packet.as_bytes(), origin_server_addr)
+                .send(&data_packet.as_bytes())
                 .map_err(|e| format!("File transmission aborted due to an error: {}", e))?;
 
             // Create a buffer to store the ACK packet
             let mut response = [0_u8; 4];
 
             client_socket
-                .recv_from(&mut response)
+                .recv(&mut response)
                 .map_err(|e| format!("Unable to receive a ACK packet from the server: {}", e))?;
 
             let ack_packet = match TFTPPacket::parse(&response) {
@@ -247,7 +250,7 @@ fn main() -> Result<(), String> {
                 }
                 _ => {
                     let err_packet = ERRORPacket::IllegalTftpOperation;
-                    client_socket.send_to(&err_packet.as_bytes(), origin_server_addr);
+                    client_socket.send(&err_packet.as_bytes());
                     return Err(format!(
                         "File transmission aborted due to an error: {}",
                         err_packet.get_error_message()
@@ -257,7 +260,7 @@ fn main() -> Result<(), String> {
 
             if ack_packet.block != current_block_number {
                 let err_packet = ERRORPacket::IllegalTftpOperation;
-                client_socket.send_to(&err_packet.as_bytes(), origin_server_addr);
+                client_socket.send(&err_packet.as_bytes());
                 return Err(format!(
                     "File transmission aborted due to an error: {}",
                     err_packet.get_error_message()
