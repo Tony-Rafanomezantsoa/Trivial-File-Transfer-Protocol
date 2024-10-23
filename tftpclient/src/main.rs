@@ -1,5 +1,6 @@
 use std::{
     env,
+    fmt::format,
     fs::{File, OpenOptions},
     io::{Read, Write},
     net::UdpSocket,
@@ -218,37 +219,48 @@ fn main() -> Result<(), String> {
                 ));
             }
 
-            let current_block_number = 1;
+            let mut current_block_number = 1;
 
-            let mut data_buffer = [0_u8; 512];
+            loop {
+                let mut data_buffer = [0_u8; 512];
 
-            let read_bytes = file
-                .read(&mut data_buffer)
-                .map_err(|e| format!("File transmission aborted due to an error: {}", e))?;
+                let read_bytes = file
+                    .read(&mut data_buffer)
+                    .map_err(|e| format!("File transmission aborted due to an error: {}", e))?;
 
-            let data_packet =
-                DATAPacket::build(current_block_number, &data_buffer[..read_bytes]).unwrap();
+                let data_packet =
+                    DATAPacket::build(current_block_number, &data_buffer[..read_bytes]).unwrap();
 
-            client_socket
-                .send(&data_packet.as_bytes())
-                .map_err(|e| format!("File transmission aborted due to an error: {}", e))?;
+                client_socket
+                    .send(&data_packet.as_bytes())
+                    .map_err(|e| format!("File transmission aborted due to an error: {}", e))?;
 
-            // Create a buffer to store the ACK packet
-            let mut response = [0_u8; 4];
+                // Create a buffer to store the ACK packet
+                let mut reponse = [0_u8; 4];
 
-            client_socket
-                .recv(&mut response)
-                .map_err(|e| format!("Unable to receive a ACK packet from the server: {}", e))?;
+                client_socket.recv(&mut reponse).map_err(|e| {
+                    format!("Unable to receive a ACK packet from the server: {}", e)
+                })?;
 
-            let ack_packet = match TFTPPacket::parse(&response) {
-                Ok(TFTPPacket::ACK(packet)) => packet,
-                Ok(TFTPPacket::ERROR(err_packet)) => {
-                    return Err(format!(
-                        "File transmission aborted due to an error: {}",
-                        err_packet.get_error_message()
-                    ));
-                }
-                _ => {
+                let ack_packet = match TFTPPacket::parse(&response) {
+                    Ok(TFTPPacket::ACK(packet)) => packet,
+                    Ok(TFTPPacket::ERROR(err_packet)) => {
+                        return Err(format!(
+                            "File transmission aborted due to an error: {}",
+                            err_packet.get_error_message()
+                        ));
+                    }
+                    _ => {
+                        let err_packet = ERRORPacket::IllegalTftpOperation;
+                        client_socket.send(&err_packet.as_bytes());
+                        return Err(format!(
+                            "File transmission aborted due to an error: {}",
+                            err_packet.get_error_message()
+                        ));
+                    }
+                };
+
+                if ack_packet.block != current_block_number {
                     let err_packet = ERRORPacket::IllegalTftpOperation;
                     client_socket.send(&err_packet.as_bytes());
                     return Err(format!(
@@ -256,25 +268,14 @@ fn main() -> Result<(), String> {
                         err_packet.get_error_message()
                     ));
                 }
-            };
 
-            if ack_packet.block != current_block_number {
-                let err_packet = ERRORPacket::IllegalTftpOperation;
-                client_socket.send(&err_packet.as_bytes());
-                return Err(format!(
-                    "File transmission aborted due to an error: {}",
-                    err_packet.get_error_message()
-                ));
+                if read_bytes < 512 {
+                    println!("Upload completed!");
+                    return Ok(());
+                }
+
+                current_block_number += 1;
             }
-
-            if read_bytes < 512 {
-                println!("Upload completed!");
-                return Ok(());
-            }
-
-            //===========================================
-            //  REMAINING FILE TRANSMISSION LOOP [WRITE]
-            //===========================================
         }
     }
 
