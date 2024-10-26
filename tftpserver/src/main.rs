@@ -1,5 +1,8 @@
 use std::{
-    env, fs::File, io::Read, net::{SocketAddr, UdpSocket}
+    env,
+    fs::File,
+    io::Read,
+    net::{SocketAddr, UdpSocket},
 };
 
 use rand::Rng;
@@ -12,9 +15,10 @@ fn main() -> Result<(), String> {
     println!("The TFTP server is running successfully...");
 
     loop {
+        // Create a buffer to store a TFTP request
         let mut request = [0_u8; 512];
 
-        let (_, client_addr) = match server_socket.recv_from(&mut request) {
+        let (req_bytes, client_addr) = match server_socket.recv_from(&mut request) {
             Ok(recv_info) => recv_info,
             Err(e) => {
                 eprintln!("Unable to receive a TFTP request packet: {}", e);
@@ -22,7 +26,7 @@ fn main() -> Result<(), String> {
             }
         };
 
-        match TFTPPacket::parse(&request) {
+        match TFTPPacket::parse(&request[..req_bytes]) {
             Ok(TFTPPacket::RRQ(rrq)) => client_read_from_server(rrq, client_addr),
             Ok(TFTPPacket::WRQ(wrq)) => client_write_to_server(wrq, client_addr),
             _ => {
@@ -45,10 +49,16 @@ fn client_read_from_server(rrq: RRQPacket, client_addr: SocketAddr) {
         }
     };
 
+    // Ensure connection with the client
+    if let Err(e) = server_socket.connect(client_addr) {
+        eprintln!("Error: {}", e);
+        return;
+    }
+
     if rrq.mode.to_lowercase() != "octet" {
         let err_packet =
             ERRORPacket::NotDefined("The server supports only the 'octet' mode".to_string());
-        server_socket.send_to(&err_packet.as_bytes(), client_addr);
+        server_socket.send(&err_packet.as_bytes());
         eprintln!("Error: {}", err_packet.get_error_message());
         return;
     }
@@ -58,7 +68,7 @@ fn client_read_from_server(rrq: RRQPacket, client_addr: SocketAddr) {
         Err(e) => {
             let err_packet =
                 ERRORPacket::NotDefined(format!("An error occurs on the server: {}", e));
-            server_socket.send_to(&err_packet.as_bytes(), client_addr);
+            server_socket.send(&err_packet.as_bytes());
             eprintln!("Error: {}", e);
             return;
         }
@@ -69,28 +79,31 @@ fn client_read_from_server(rrq: RRQPacket, client_addr: SocketAddr) {
         Err(e) => {
             let err_packet =
                 ERRORPacket::NotDefined(format!("An error occurs on the server: {}", e));
-            server_socket.send_to(&err_packet.as_bytes(), client_addr);
+            server_socket.send(&err_packet.as_bytes());
             eprintln!("Error: {}", e);
             return;
         }
     };
 
-    let mut data = [0_u8; 512];
+    let current_block_number = 1;
 
-    let bytes = match file.read(&mut data) {
+    let mut data_buffer = [0_u8; 512];
+
+    let read_bytes = match file.read(&mut data_buffer) {
         Ok(bytes) => bytes,
         Err(e) => {
             let err_packet =
                 ERRORPacket::NotDefined(format!("An error occurs on the server: {}", e));
-            server_socket.send_to(&err_packet.as_bytes(), client_addr);
+            server_socket.send(&err_packet.as_bytes());
             eprintln!("Error: {}", e);
             return;
         }
     };
 
-    let first_data_packet = DATAPacket::build(1, &data[..bytes]).unwrap();
+    let data_packet =
+        DATAPacket::build(current_block_number, &data_buffer[..read_bytes]).unwrap();
 
-    server_socket.send_to(&first_data_packet.as_bytes(), client_addr);
+    server_socket.send(&data_packet.as_bytes());
 }
 
 fn client_write_to_server(wrq: WRQPacket, client_addr: SocketAddr) {
@@ -103,17 +116,21 @@ fn client_write_to_server(wrq: WRQPacket, client_addr: SocketAddr) {
         }
     };
 
+    // Ensure connection with the client
+    if let Err(e) = server_socket.connect(client_addr) {
+        eprintln!("Error: {}", e);
+        return;
+    }
+
     if wrq.mode.to_lowercase() != "octet" {
         let err_packet =
             ERRORPacket::NotDefined("The server supports only the 'octet' mode".to_string());
-        server_socket.send_to(&err_packet.as_bytes(), client_addr);
+        server_socket.send(&err_packet.as_bytes());
         eprintln!("Error: {}", err_packet.get_error_message());
         return;
     }
 
-    let data = ACKPacket {
-        block: 0,
-    };
+    let ack = ACKPacket { block: 0 };
 
-    server_socket.send_to(&data.as_bytes(), client_addr);
+    server_socket.send(&ack.as_bytes());
 }
