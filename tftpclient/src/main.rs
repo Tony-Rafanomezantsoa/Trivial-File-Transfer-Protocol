@@ -1,6 +1,5 @@
 use std::{
     env,
-    fmt::format,
     fs::{File, OpenOptions},
     io::{Read, Write},
     net::UdpSocket,
@@ -111,7 +110,7 @@ fn main() -> Result<(), String> {
                 // TFTP DATA packet (516 bytes)
                 let mut response = [0_u8; 516];
 
-                client_socket
+                let recv_packet_len = client_socket
                     .recv(&mut response)
                     .map_err(|e| format!("File transmission aborted due to an error: {}", e))?;
 
@@ -236,9 +235,9 @@ fn main() -> Result<(), String> {
                     .map_err(|e| format!("File transmission aborted due to an error: {}", e))?;
 
                 // Create a buffer to store the ACK packet
-                let mut reponse = [0_u8; 4];
+                let mut response = [0_u8; 4];
 
-                client_socket.recv(&mut reponse).map_err(|e| {
+                client_socket.recv(&mut response).map_err(|e| {
                     format!("Unable to receive a ACK packet from the server: {}", e)
                 })?;
 
@@ -265,7 +264,7 @@ fn main() -> Result<(), String> {
                     client_socket.send(&err_packet.as_bytes());
                     return Err(format!(
                         "File transmission aborted due to an error: {}",
-                        err_packet.get_error_message()
+                        err_packet.get_error_message(),
                     ));
                 }
 
