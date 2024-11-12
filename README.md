@@ -1,6 +1,6 @@
 # TFTP Implementation (RFC 1350)
 
-This project is a **C** implementation of the **[Trivial File Transfer Protocol (TFTP)](https://tools.ietf.org/html/rfc1350)**, as defined by **RFC 1350**. TFTP is a simple, lightweight protocol designed for transferring files over UDP, typically used in environments with limited resources such as bootstrapping networked devices or embedded systems.
+This project is an implementation of the **[Trivial File Transfer Protocol (TFTP)](https://tools.ietf.org/html/rfc1350)**, as defined by **RFC 1350**. TFTP is a simple, lightweight protocol designed for transferring files over UDP, typically used in environments with limited resources such as bootstrapping networked devices or embedded systems.
 
 ## Features
 
